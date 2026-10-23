@@ -1,0 +1,374 @@
+{
+  "name": "03 Meta Ads daily pull",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 03 Meta Ads daily pull (07:00 IST)\nAd-level insights for **yesterday** → one bulk upsert keyed on `(date, ad_id)` (re-runs and back-fills are safe; campaigns/ads are upserted too).\nThen `creative_health()` over the last 7 days — the same function behind the dashboard tile — and if any creative is **REFRESH** or **KILL**, one ClickUp task goes to the marketing owner.\n\nConvention: campaign names containing \"workshop\" are workshop campaigns.",
+        "height": 280,
+        "width": 520,
+        "color": 7
+      },
+      "id": "f99aacd6-2230-41e1-837c-7a5134e85703",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      },
+      "id": "8b22799d-7537-40b7-b877-6e75850ce340",
+      "name": "Daily 07:00 IST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://graph.facebook.com/v21.0/act_{{ $env.META_AD_ACCOUNT_ID }}/insights",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "facebookGraphApi",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "level",
+              "value": "ad"
+            },
+            {
+              "name": "date_preset",
+              "value": "yesterday"
+            },
+            {
+              "name": "time_increment",
+              "value": "1"
+            },
+            {
+              "name": "fields",
+              "value": "ad_id,ad_name,campaign_id,campaign_name,spend,impressions,reach,clicks,frequency,actions"
+            },
+            {
+              "name": "limit",
+              "value": "500"
+            }
+          ]
+        },
+        "options": {
+          "pagination": {
+            "pagination": {
+              "paginationMode": "responseContainsNextURL",
+              "nextURL": "={{ $response.body.paging.next }}",
+              "paginationCompleteWhen": "other",
+              "completeExpression": "={{ !$response.body.paging || !$response.body.paging.next }}",
+              "limitPagesFetched": true,
+              "maxRequests": 20
+            }
+          }
+        }
+      },
+      "id": "1df5a587-c563-4204-8727-c9c765ae9cfe",
+      "name": "Meta insights: yesterday by ad",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        320
+      ],
+      "credentials": {
+        "facebookGraphApi": {
+          "id": "REPLACE_meta",
+          "name": "Meta Marketing API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Lead count: first matching action type wins (instant form, grouped, then pixel).\nconst LEAD_ACTIONS = ['lead', 'onsite_conversion.lead_grouped', 'offsite_conversion.fb_pixel_lead'];\nconst leadsOf = actions => {\n  for (const type of LEAD_ACTIONS) {\n    const a = (actions || []).find(x => x.action_type === type);\n    if (a) return Number(a.value);\n  }\n  return 0;\n};\nconst rows = $input.all().flatMap(i => i.json.data || []).map(r => ({\n  date: r.date_start,\n  ad_id: r.ad_id,\n  ad_name: r.ad_name,\n  campaign_id: r.campaign_id,\n  campaign_name: r.campaign_name,\n  objective: /workshop/i.test(r.campaign_name) ? 'workshop' : 'program',\n  spend: Number(r.spend || 0),\n  impressions: Number(r.impressions || 0),\n  reach: Number(r.reach || 0),\n  clicks: Number(r.clicks || 0),\n  leads: leadsOf(r.actions),\n  frequency: r.frequency ? Number(r.frequency) : null,\n}));\nreturn [{ json: { count: rows.length, rows } }];"
+      },
+      "id": "3e813b70-fa05-4742-905f-24e5230b4183",
+      "name": "Normalise to ad_daily rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with r as (\n  select * from jsonb_to_recordset($1::jsonb) as x(\n    date date, ad_id text, ad_name text, campaign_id text, campaign_name text, objective text,\n    spend numeric, impressions int, reach int, clicks int, leads int, frequency numeric)\n), c as (\n  insert into campaigns (id, name, objective)\n  select distinct on (campaign_id) campaign_id, campaign_name, objective from r\n  on conflict (id) do update set name = excluded.name, objective = excluded.objective\n), a as (\n  insert into ad_creatives (id, campaign_id, name)\n  select distinct on (ad_id) ad_id, campaign_id, ad_name from r\n  on conflict (id) do update set name = excluded.name, campaign_id = excluded.campaign_id\n), d as (\n  insert into ad_daily (date, ad_id, spend, impressions, reach, clicks, leads, frequency)\n  select date, ad_id, spend, impressions, reach, clicks, leads, frequency from r\n  on conflict (date, ad_id) do update set\n    spend = excluded.spend, impressions = excluded.impressions, reach = excluded.reach,\n    clicks = excluded.clicks, leads = excluded.leads, frequency = excluded.frequency\n  returning 1\n)\nselect count(*)::int as rows_upserted from d",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.rows) ] }}"
+        }
+      },
+      "id": "9e6d2540-fc52-4552-a319-f99dd6c344f0",
+      "name": "Upsert campaigns, ads, ad_daily",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into ingest_log (workflow, rows, status, execution_id)\nvalues ($1, $2, $3, $4)",
+        "options": {
+          "queryReplacement": "={{ [ $workflow.name, $json.rows_upserted, 'ok', $execution.id ] }}"
+        }
+      },
+      "id": "16c2ff5d-1eaf-4a19-b900-abae810634d1",
+      "name": "Log run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        960,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "select campaign_name, creative_name, flag, reason, spend, qualified_leads, cpql, frequency_7d, ctr_pct\nfrom creative_health(ist_date(now()) - 7, ist_date(now()) - 1)\nwhere flag in ('REFRESH', 'KILL')\norder by flag, spend desc",
+        "options": {}
+      },
+      "id": "c0687713-be63-4d86-bdc4-5b5d78f5c08a",
+      "name": "Creative health (last 7 days)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1200,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      },
+      "executeOnce": true,
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const flagged = $input.all().map(i => i.json).filter(r => r.flag);\nconst day = $now.setZone('Asia/Kolkata').toFormat('d LLL');\nconst lines = flagged.map(r =>\n  `- **${r.flag}** · ${r.campaign_name} / ${r.creative_name}: ${r.reason} (7d spend ₹${Math.round(r.spend)}, QL ${r.qualified_leads})`);\nreturn [{\n  json: {\n    count: flagged.length,\n    kills: flagged.filter(r => r.flag === 'KILL').length,\n    title: `Ad health ${day}: ${flagged.length} creative(s) need action`,\n    body: ['Flags from `creative_health()` over the last 7 days. Same rules as the dashboard tile.', '', ...lines].join('\\n'),\n  },\n}];"
+      },
+      "id": "2e35bd9a-7177-4c2f-83bb-55c30004a230",
+      "name": "Summarise flagged creatives",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "ef847996-37ad-4315-a75e-1abd08f0a1cc",
+              "leftValue": "={{ $json.count }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "14a36dbe-534e-454f-a3d3-517cba2ad8a8",
+      "name": "Any REFRESH or KILL?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "resource": "task",
+        "operation": "create",
+        "team": "={{ $env.CLICKUP_TEAM_ID }}",
+        "space": "={{ $env.CLICKUP_SPACE_ID }}",
+        "folderless": true,
+        "list": "={{ $env.CLICKUP_MARKETING_LIST_ID }}",
+        "name": "={{ $json.title }}",
+        "additionalFields": {
+          "markdownContent": true,
+          "assignees": [
+            "={{ $env.CLICKUP_MARKETING_OWNER_ID }}"
+          ],
+          "content": "={{ $json.body }}",
+          "priority": "={{ $json.kills > 0 ? 2 : 3 }}",
+          "dueDate": "={{ $now.setZone('Asia/Kolkata').set({ hour: 18, minute: 0 }).toISO() }}"
+        }
+      },
+      "id": "9f599f91-ae71-4ab9-ada7-d835f9a104c8",
+      "name": "Task for marketing owner",
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        1920,
+        320
+      ],
+      "credentials": {
+        "clickUpApi": {
+          "id": "REPLACE_clickup",
+          "name": "ClickUp API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Daily 07:00 IST": {
+      "main": [
+        [
+          {
+            "node": "Meta insights: yesterday by ad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Meta insights: yesterday by ad": {
+      "main": [
+        [
+          {
+            "node": "Normalise to ad_daily rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise to ad_daily rows": {
+      "main": [
+        [
+          {
+            "node": "Upsert campaigns, ads, ad_daily",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert campaigns, ads, ad_daily": {
+      "main": [
+        [
+          {
+            "node": "Log run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log run": {
+      "main": [
+        [
+          {
+            "node": "Creative health (last 7 days)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Creative health (last 7 days)": {
+      "main": [
+        [
+          {
+            "node": "Summarise flagged creatives",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarise flagged creatives": {
+      "main": [
+        [
+          {
+            "node": "Any REFRESH or KILL?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any REFRESH or KILL?": {
+      "main": [
+        [
+          {
+            "node": "Task for marketing owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "errorWorkflow": "REPLACE_WITH_00_error_alert_WORKFLOW_ID"
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "alcovia"
+    }
+  ]
+}

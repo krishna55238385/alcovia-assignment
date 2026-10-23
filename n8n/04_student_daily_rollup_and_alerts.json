@@ -1,0 +1,419 @@
+{
+  "name": "04 Student daily rollup and alerts",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 04 Student nightly rollup + alerts (22:30 IST)\n1. Roll raw `app_events` since yesterday 00:00 IST into `app_sessions`, `focus_sessions`, `quiz_attempts` (8 pm quiz). Keyed on `source_event_id`, so the overlap with the previous run is free.\n2. Pull yesterday's wearable rows (aggregator API, placeholder) → upsert `wearable_daily`.\n3. `student_alerts(yesterday)` → `alert_log` ON CONFLICT DO NOTHING: only **new** alerts continue.\n4. Every new alert → ClickUp task for the student's advisor. Parent WhatsApp template **only** for missed deadline / readiness below pace, and only if the parent opted in.",
+        "height": 320,
+        "width": 560,
+        "color": 7
+      },
+      "id": "1c181d87-abea-4711-a05c-6dd538a27af6",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "30 22 * * *"
+            }
+          ]
+        }
+      },
+      "id": "3ce53fd6-442b-4a01-8ae3-862e739820d0",
+      "name": "Nightly 22:30 IST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with ev as (\n  select * from app_events\n  where occurred_at >= (ist_date(now()) - 1)::timestamp at time zone 'Asia/Kolkata'\n), s as (\n  insert into app_sessions (student_id, started_at, duration_s, feature, source_event_id)\n  select student_id,\n         occurred_at - make_interval(secs => (props->>'duration_s')::int),\n         (props->>'duration_s')::int,\n         case when feature in ('home','realm','focus','syllabus','planner','tasks','goals','wellness','quiz')\n              then feature else 'other' end,\n         id\n  from ev where event_name = 'session_end' and props->>'duration_s' is not null\n  on conflict (source_event_id) do nothing\n  returning 1\n), f as (\n  insert into focus_sessions (student_id, started_at, planned_min, actual_min, completed, source_event_id)\n  select student_id, occurred_at - make_interval(mins => coalesce((props->>'actual_min')::int, 0)),\n         (props->>'planned_min')::int, coalesce((props->>'actual_min')::int, 0),\n         coalesce((props->>'completed')::boolean, false), id\n  from ev where event_name = 'focus_end' and (props->>'planned_min')::int > 0\n  on conflict (source_event_id) do nothing\n  returning 1\n), q as (             -- first submission per quiz counts\n  insert into quiz_attempts (quiz_id, student_id, score, total, submitted_at)\n  select distinct on (qz.id, ev.student_id) qz.id, ev.student_id,\n         (ev.props->>'score')::numeric, (ev.props->>'total')::numeric, ev.occurred_at\n  from ev join quizzes qz on qz.id = (ev.props->>'quiz_id')::bigint\n  where ev.event_name = 'quiz_submit'\n  order by qz.id, ev.student_id, ev.occurred_at\n  on conflict (quiz_id, student_id) do nothing\n  returning 1\n)\nselect (select count(*) from ev)::int as events,\n       (select count(*) from s)::int  as app_sessions,\n       (select count(*) from f)::int  as focus_sessions,\n       (select count(*) from q)::int  as quiz_attempts",
+        "options": {}
+      },
+      "id": "ceae3ab6-49d4-41a8-a888-0545f4af38c6",
+      "name": "Roll up app_events",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.WEARABLE_API_BASE }}/v1/daily",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "date",
+              "value": "={{ $now.setZone('Asia/Kolkata').minus({ days: 1 }).toISODate() }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "ada9b53b-93d1-4fb8-bdc4-c60d8f570dbc",
+      "name": "Wearables: yesterday",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_wearable",
+          "name": "Wearable aggregator API key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Aggregator returns one record per user per device; reference_id is our students.id.\nconst SOURCES = ['apple', 'samsung', 'whoop', 'garmin'];\nconst rows = $input.all().flatMap(i => i.json.data || [])\n  .filter(r => r.reference_id && SOURCES.includes(String(r.provider).toLowerCase()))\n  .map(r => ({\n    student_id: Number(r.reference_id),\n    date: r.date,\n    source: String(r.provider).toLowerCase(),\n    active_min: r.active_minutes ?? null,\n    strain: r.strain ?? null,\n    sleep_hours: r.sleep_seconds != null ? Math.round(r.sleep_seconds / 36) / 100 : null,\n    recovery_pct: r.recovery_score ?? null,\n  }));\nreturn [{ json: { count: rows.length, rows } }];"
+      },
+      "id": "7e89dc1a-0fce-4d9d-993d-0090cc407283",
+      "name": "Normalise wearable rows",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        720,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with r as (\n  select * from jsonb_to_recordset($1::jsonb) as x(\n    student_id bigint, date date, source text, active_min int, strain numeric, sleep_hours numeric, recovery_pct numeric)\n), w as (\n  insert into wearable_daily (student_id, date, source, active_min, strain, sleep_hours, recovery_pct)\n  select r.* from r join students s on s.id = r.student_id\n  on conflict (student_id, date, source) do update set\n    active_min = excluded.active_min, strain = excluded.strain,\n    sleep_hours = excluded.sleep_hours, recovery_pct = excluded.recovery_pct\n  returning 1\n)\nselect count(*)::int as rows_upserted from w",
+        "options": {
+          "queryReplacement": "={{ [ JSON.stringify($json.rows) ] }}"
+        }
+      },
+      "id": "61cf9fc8-32a6-4582-8785-11cd68e1ba97",
+      "name": "Upsert wearable_daily",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        960,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into ingest_log (workflow, rows, status, execution_id)\nvalues ($1, $2, $3, $4)",
+        "options": {
+          "queryReplacement": "={{ [ $workflow.name, $('Roll up app_events').first().json.events + $json.rows_upserted, 'ok', $execution.id ] }}"
+        }
+      },
+      "id": "c838054b-0e6b-41f3-9ea0-d7bc7bf091f3",
+      "name": "Log run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1200,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with new_alerts as (\n  insert into alert_log (alert_key, student_id, alert_type, detail, as_of)\n  select alert_key, student_id, alert_type, detail, ist_date(now()) - 1\n  from student_alerts(ist_date(now()) - 1)\n  on conflict (alert_key) do nothing\n  returning *\n)\nselect n.alert_key, n.alert_type, n.detail, s.id as student_id, s.name as student_name,\n       s.parent_phone, s.parent_wa_opt_in, a.name as advisor_name, a.clickup_user_id\nfrom new_alerts n\njoin students s on s.id = n.student_id\nleft join advisors a on a.id = s.advisor_id\norder by a.name, s.name",
+        "options": {}
+      },
+      "id": "59c79fcc-1690-439b-9904-fb71eaca46ac",
+      "name": "Record new alerts",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1440,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "resource": "task",
+        "operation": "create",
+        "team": "={{ $env.CLICKUP_TEAM_ID }}",
+        "space": "={{ $env.CLICKUP_SPACE_ID }}",
+        "folderless": true,
+        "list": "={{ $env.CLICKUP_ADVISOR_LIST_ID }}",
+        "name": "={{ $json.student_name }}: {{ $json.alert_type.replace(/_/g, ' ') }}",
+        "additionalFields": {
+          "markdownContent": true,
+          "assignees": [
+            "={{ $json.clickup_user_id }}"
+          ],
+          "content": "={{ $json.detail }}\n\n_Raised by the nightly rollup. Close this task once you have spoken to the student._",
+          "priority": "={{ ['missed_deadline', 'readiness_below_pace'].includes($json.alert_type) ? 2 : 3 }}",
+          "dueDate": "={{ $now.setZone('Asia/Kolkata').plus({ days: 1 }).set({ hour: 18, minute: 0 }).toISO() }}"
+        }
+      },
+      "id": "f65dfdda-13f9-44be-b242-4e2ba4ca5cd2",
+      "name": "Task for advisor",
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        1680,
+        320
+      ],
+      "credentials": {
+        "clickUpApi": {
+          "id": "REPLACE_clickup",
+          "name": "ClickUp API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "1c8958f0-aaa3-4b70-96ab-ca3520fc3902",
+              "leftValue": "={{ ['missed_deadline', 'readiness_below_pace'].includes($('Record new alerts').item.json.alert_type) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "362a4563-d01c-4ccf-87e7-17326965ca1e",
+              "leftValue": "={{ $('Record new alerts').item.json.parent_wa_opt_in }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "a7c56b45-bf30-45ad-9a96-f993cadd72a0",
+              "leftValue": "={{ $('Record new alerts').item.json.parent_phone }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "0b5ec407-70ec-48bd-aa5a-33aa5db56981",
+      "name": "Parent WhatsApp?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/v21.0/{{ $env.WA_PHONE_NUMBER_ID }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', to: $('Record new alerts').item.json.parent_phone.replace(/\\D/g, ''), type: 'template', template: { name: $env.WA_TEMPLATE_PARENT_ALERT, language: { code: 'en' }, components: [{ type: 'body', parameters: [ { type: 'text', text: $('Record new alerts').item.json.student_name.split(' ')[0] }, { type: 'text', text: $('Record new alerts').item.json.detail }, { type: 'text', text: $('Record new alerts').item.json.advisor_name || 'your advisor' } ] }] } }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "adcbbcf3-5dfd-4013-adfd-91a08e3889c6",
+      "name": "WhatsApp: parent template",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_whatsapp",
+          "name": "WhatsApp Cloud API token"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "Nightly 22:30 IST": {
+      "main": [
+        [
+          {
+            "node": "Roll up app_events",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Roll up app_events": {
+      "main": [
+        [
+          {
+            "node": "Wearables: yesterday",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wearables: yesterday": {
+      "main": [
+        [
+          {
+            "node": "Normalise wearable rows",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalise wearable rows": {
+      "main": [
+        [
+          {
+            "node": "Upsert wearable_daily",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert wearable_daily": {
+      "main": [
+        [
+          {
+            "node": "Log run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log run": {
+      "main": [
+        [
+          {
+            "node": "Record new alerts",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Record new alerts": {
+      "main": [
+        [
+          {
+            "node": "Task for advisor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Task for advisor": {
+      "main": [
+        [
+          {
+            "node": "Parent WhatsApp?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parent WhatsApp?": {
+      "main": [
+        [
+          {
+            "node": "WhatsApp: parent template",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "errorWorkflow": "REPLACE_WITH_00_error_alert_WORKFLOW_ID"
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "alcovia"
+    }
+  ]
+}

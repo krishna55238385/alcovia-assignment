@@ -1,0 +1,317 @@
+{
+  "name": "01 ClickUp lead stage sync",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 01 ClickUp lead stage → Supabase\nClickUp stays the advisors' working CRM; Supabase keeps the **first time** each funnel stage was reached (timestamps never move backwards, so funnel and journey-days stay auditable).\n\nUpsert key: `clickup_task_id`. When a lead moves to **Discovery set**, Smallest.ai schedules AI reminder calls at **T-24h** and **T-1h** to lift show-up (idempotency key = task + call time + slot).\n\nEdit `STAGE_BY_STATUS` if the Leads list statuses are renamed.",
+        "height": 300,
+        "width": 520,
+        "color": 7
+      },
+      "id": "ac123b74-fe21-4092-a19e-0f920c2227c4",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "team": "={{ $env.CLICKUP_TEAM_ID }}",
+        "events": [
+          "taskStatusUpdated"
+        ],
+        "filters": {
+          "listId": "={{ $env.CLICKUP_LEADS_LIST_ID }}"
+        }
+      },
+      "id": "dfe1bc8a-f4aa-4e80-8b08-8e7fe5838457",
+      "name": "ClickUp: lead status changed",
+      "type": "n8n-nodes-base.clickUpTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        320
+      ],
+      "credentials": {
+        "clickUpApi": {
+          "id": "REPLACE_clickup",
+          "name": "ClickUp API"
+        }
+      },
+      "webhookId": "2f0600fe-9753-4c90-9891-d248782ec66b"
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "resource": "task",
+        "operation": "get",
+        "id": "={{ $json.task_id }}"
+      },
+      "id": "931e0916-c81c-4ae0-b853-2c0ff93ceb73",
+      "name": "Get lead task",
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        240,
+        320
+      ],
+      "credentials": {
+        "clickUpApi": {
+          "id": "REPLACE_clickup",
+          "name": "ClickUp API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "jsCode": "// ClickUp status (lower-case) -> funnel stage. Terminal stages set leads.outcome.\nconst STAGE_BY_STATUS = {\n  'qualified': 'qualified',\n  'discovery set': 'discovery_set',\n  'discovery done': 'discovery_showed',\n  'ambition interview': 'ambition_interview',\n  'architect session': 'architect_session',\n  'trial': 'trial',\n  'enrolled': 'full',\n  'dropped': 'dropped',\n};\nconst SOURCES = ['meta', 'organic', 'referral', 'workshop'];\nconst trigger = $('ClickUp: lead status changed').first().json;\nconst change = (trigger.history_items || []).find(h => h.field === 'status') || {};\nconst eventAt = new Date(Number(change.date || Date.now())).toISOString();\nconst ms = v => (v ? new Date(Number(v)).toISOString() : null);\n\nreturn $input.all().map(({ json: task }) => {\n  const cf = name => (task.custom_fields || []).find(f => f.name.toLowerCase() === name);\n  const value = name => cf(name)?.value ?? null;\n  const option = name => {\n    const f = cf(name);\n    if (!f || f.value == null) return null;\n    const o = (f.type_config?.options || []).find(x => x.orderindex === f.value || x.id === f.value);\n    return o ? o.name.toLowerCase() : null;\n  };\n  const source = option('source');\n  return {\n    json: {\n      clickup_task_id: task.id,\n      created_at: ms(task.date_created),\n      source: SOURCES.includes(source) ? source : (value('meta ad id') ? 'meta' : 'organic'),\n      campaign_id: value('meta campaign id'),\n      ad_id: value('meta ad id'),\n      parent_name: value('parent name') || task.name,\n      parent_phone: value('parent phone'),\n      teen_grade: value('grade') ? Number(value('grade')) : null,\n      discovery_call_at: ms(value('discovery call at')) || ms(task.due_date),\n      drop_reason: option('drop reason'),\n      stage: STAGE_BY_STATUS[task.status.status.toLowerCase()] || null,\n      event_at: eventAt,\n    },\n  };\n});"
+      },
+      "id": "2de05ccb-aea5-44a8-9a81-237184ebd338",
+      "name": "Map status to funnel stage",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with camp as (        -- stub so the FK holds if the lead lands before the daily Meta pull\n  insert into campaigns (id, name, objective)\n  select $4::text, $4::text, 'program' where $4::text is not null\n  on conflict (id) do nothing\n), ad as (\n  insert into ad_creatives (id, campaign_id, name)\n  select $5::text, $4::text, $5::text where $5::text is not null and $4::text is not null\n  on conflict (id) do nothing\n)\ninsert into leads as l (clickup_task_id, created_at, source, campaign_id, ad_id, parent_name, parent_phone,\n                        teen_grade, discovery_call_at, drop_reason, qualified_at, discovery_set_at,\n                        discovery_showed_at, ambition_interview_at, architect_session_at, outcome, closed_at)\nvalues ($1, $2::timestamptz, $3, $4, $5, $6, $7, $8::smallint, $9::timestamptz, $10,\n        case when $11 = 'qualified'          then $12::timestamptz end,\n        case when $11 = 'discovery_set'      then $12::timestamptz end,\n        case when $11 = 'discovery_showed'   then $12::timestamptz end,\n        case when $11 = 'ambition_interview' then $12::timestamptz end,\n        case when $11 = 'architect_session'  then $12::timestamptz end,\n        case when $11 in ('trial','full','dropped') then $11 else 'open' end,\n        case when $11 in ('trial','full','dropped') then $12::timestamptz end)\non conflict (clickup_task_id) do update set\n  source                = excluded.source,\n  campaign_id           = coalesce(excluded.campaign_id, l.campaign_id),\n  ad_id                 = coalesce(excluded.ad_id, l.ad_id),\n  parent_name           = coalesce(excluded.parent_name, l.parent_name),\n  parent_phone          = coalesce(excluded.parent_phone, l.parent_phone),\n  teen_grade            = coalesce(excluded.teen_grade, l.teen_grade),\n  discovery_call_at     = coalesce(excluded.discovery_call_at, l.discovery_call_at),\n  drop_reason           = coalesce(excluded.drop_reason, l.drop_reason),\n  qualified_at          = coalesce(l.qualified_at, excluded.qualified_at),\n  discovery_set_at      = coalesce(l.discovery_set_at, excluded.discovery_set_at),\n  discovery_showed_at   = coalesce(l.discovery_showed_at, excluded.discovery_showed_at),\n  ambition_interview_at = coalesce(l.ambition_interview_at, excluded.ambition_interview_at),\n  architect_session_at  = coalesce(l.architect_session_at, excluded.architect_session_at),\n  outcome               = case when excluded.outcome <> 'open' then excluded.outcome else l.outcome end,\n  closed_at             = case when excluded.outcome <> 'open' then coalesce(l.closed_at, excluded.closed_at) else l.closed_at end,\n  updated_at            = now()\nreturning l.id as lead_id, l.clickup_task_id, l.parent_name, l.parent_phone, l.discovery_call_at, $11 as stage",
+        "options": {
+          "queryReplacement": "={{ [ $json.clickup_task_id, $json.created_at, $json.source, $json.campaign_id, $json.ad_id, $json.parent_name, $json.parent_phone, $json.teen_grade, $json.discovery_call_at, $json.drop_reason, $json.stage, $json.event_at ] }}"
+        }
+      },
+      "id": "6d4a9a6a-6fbf-42dc-b06e-3d6b3147a736",
+      "name": "Upsert lead",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into ingest_log (workflow, rows, status, execution_id)\nvalues ($1, $2, $3, $4)",
+        "options": {
+          "queryReplacement": "={{ [ $workflow.name, $('Upsert lead').all().length, 'ok', $execution.id ] }}"
+        }
+      },
+      "id": "bd22a652-dfb8-40ac-8cca-30a7ec97d4bf",
+      "name": "Log run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        960,
+        520
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      },
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "d7ba8616-f1e6-4f10-897c-13f6657cdc05",
+              "leftValue": "={{ $json.stage }}",
+              "rightValue": "discovery_set",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "70f29252-e8e5-4637-ae9d-f2d1c70bb14b",
+              "leftValue": "={{ $json.discovery_call_at }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "ae9b1b3a-4651-4446-9427-9bdfe24bd382",
+              "leftValue": "={{ $json.parent_phone }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "fecb0c97-aa9e-4125-9506-e36c32f5f71f",
+      "name": "Discovery call just set?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        960,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const out = [];\nfor (const { json: lead } of $input.all()) {\n  const callAt = new Date(lead.discovery_call_at).getTime();\n  for (const [slot, hours] of [['T-24h', 24], ['T-1h', 1]]) {\n    const at = callAt - hours * 3600 * 1000;\n    if (at <= Date.now()) continue; // call booked too close for this reminder\n    out.push({\n      json: {\n        lead_id: lead.lead_id,\n        phone: lead.parent_phone,\n        parent_name: lead.parent_name,\n        slot,\n        scheduled_at: new Date(at).toISOString(),\n        call_at: new Date(callAt).toISOString(),\n        idempotency_key: [lead.clickup_task_id, callAt, slot].join(':'),\n      },\n    });\n  }\n}\nreturn out;"
+      },
+      "id": "7508f57d-ed74-48ab-94e6-b3754588f873",
+      "name": "Build T-24h and T-1h reminders",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SMALLEST_API_BASE }}/v1/calls/schedule",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ agent_id: $env.SMALLEST_REMINDER_AGENT_ID, phone_number: $json.phone, scheduled_at: $json.scheduled_at, idempotency_key: $json.idempotency_key, variables: { parent_name: $json.parent_name, call_time: DateTime.fromISO($json.call_at).setZone('Asia/Kolkata').toFormat('ccc d LLL, h:mm a'), reminder: $json.slot } }) }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "43adb5d4-48ef-45ff-836f-6aecd323a9c6",
+      "name": "Smallest.ai: schedule reminder call",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        320
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "REPLACE_smallest",
+          "name": "Smallest.ai API key"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "ClickUp: lead status changed": {
+      "main": [
+        [
+          {
+            "node": "Get lead task",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get lead task": {
+      "main": [
+        [
+          {
+            "node": "Map status to funnel stage",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map status to funnel stage": {
+      "main": [
+        [
+          {
+            "node": "Upsert lead",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upsert lead": {
+      "main": [
+        [
+          {
+            "node": "Discovery call just set?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discovery call just set?": {
+      "main": [
+        [
+          {
+            "node": "Build T-24h and T-1h reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build T-24h and T-1h reminders": {
+      "main": [
+        [
+          {
+            "node": "Smallest.ai: schedule reminder call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "errorWorkflow": "REPLACE_WITH_00_error_alert_WORKFLOW_ID"
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "alcovia"
+    }
+  ]
+}

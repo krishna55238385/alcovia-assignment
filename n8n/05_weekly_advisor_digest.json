@@ -1,0 +1,196 @@
+{
+  "name": "05 Weekly advisor digest",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 05 Weekly advisor digest (Sun 18:00 IST)\nOne ClickUp task per advisor, due Monday 10:00, with a one-screen markdown digest:\n- students sorted by **needs-attention** score (open alerts x3, focus down >20% WoW, <4 app days, quiz <60%)\n- top 3 wins and top 3 risks across the advisor's students\n\nAll numbers come from `v_student_daily`, `student_alerts()` and `chapters`, the same sources as the Students dashboard.",
+        "height": 260,
+        "width": 520,
+        "color": 7
+      },
+      "id": "291635aa-5508-4720-81ff-8472a80b601d",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 18 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "0d953b44-92ab-481d-b9ec-6922731c4293",
+      "name": "Sunday 18:00 IST",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with p as (select ist_date(now()) - 6 as s, ist_date(now()) as e),\nwk as (\n  select d.student_id,\n         sum(d.focus_minutes)::int                       as focus_min,\n         round(avg(d.quiz_pct), 1)::float8               as quiz_pct,\n         round(avg(d.timetable_adherence), 1)::float8    as timetable_pct,\n         (count(*) filter (where d.app_minutes > 0))::int as app_days,\n         round(avg(d.sleep_hours), 1)::float8            as sleep_h\n  from v_student_daily d, p where d.date between p.s and p.e group by 1\n),\nprev as (\n  select d.student_id, sum(d.focus_minutes)::int as focus_min, round(avg(d.quiz_pct), 1)::float8 as quiz_pct\n  from v_student_daily d, p where d.date between p.s - 7 and p.s - 1 group by 1\n),\nalerts as (\n  select student_id, count(*)::int as n, string_agg(detail, '; ' order by alert_type) as details\n  from student_alerts(ist_date(now())) group by 1\n),\nready as (\n  select c.student_id, count(*)::int as chapters_ready\n  from chapters c, p where c.stage = 5 and ist_date(c.updated_at) between p.s and p.e group by 1\n),\nmilestones as (\n  select m.student_id, count(*)::int as done\n  from roadmap_milestones m, p where ist_date(m.done_at) between p.s and p.e group by 1\n)\nselect a.id as advisor_id, a.name as advisor_name, a.clickup_user_id,\n       s.name as student_name,\n       coalesce(wk.focus_min, 0) as focus_min, prev.focus_min as prev_focus_min,\n       wk.quiz_pct, prev.quiz_pct as prev_quiz_pct, wk.timetable_pct,\n       coalesce(wk.app_days, 0) as app_days, wk.sleep_h,\n       coalesce(al.n, 0) as open_alerts, al.details as alert_details,\n       coalesce(r.chapters_ready, 0) as chapters_ready, coalesce(m.done, 0) as milestones_done,\n       (coalesce(al.n, 0) * 3\n        + case when coalesce(wk.focus_min, 0) < 0.8 * prev.focus_min then 1 else 0 end\n        + case when coalesce(wk.app_days, 0) < 4 then 1 else 0 end\n        + case when wk.quiz_pct < 60 then 1 else 0 end)::int as attention_score\nfrom students s\njoin advisors a on a.id = s.advisor_id\nleft join wk on wk.student_id = s.id\nleft join prev on prev.student_id = s.id\nleft join alerts al on al.student_id = s.id\nleft join ready r on r.student_id = s.id\nleft join milestones m on m.student_id = s.id\norder by a.id, attention_score desc, s.name",
+        "options": {}
+      },
+      "id": "a472932c-c05b-4650-8594-37e7a965f54e",
+      "name": "Weekly rows per student",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const weekOf = $now.setZone('Asia/Kolkata').minus({ days: 6 }).toFormat('d LLL');\nconst advisors = {};\nfor (const { json: r } of $input.all()) {\n  (advisors[r.advisor_id] ??= { name: r.advisor_name, clickup_user_id: r.clickup_user_id, rows: [] }).rows.push(r);\n}\nconst top3 = list => list.sort((a, b) => b.weight - a.weight).slice(0, 3).map(x => `- ${x.text}`).join('\\n') || '- Nothing notable';\nconst pct = (now, before) => (before ? Math.round((100 * (now - before)) / before) : null);\n\nreturn Object.values(advisors).map(adv => {\n  const wins = [];\n  const risks = [];\n  for (const s of adv.rows) {\n    if (s.chapters_ready) wins.push({ weight: 10 * s.chapters_ready, text: `${s.student_name}: ${s.chapters_ready} chapter(s) reached exam-ready` });\n    if (s.milestones_done) wins.push({ weight: 8 * s.milestones_done, text: `${s.student_name}: ${s.milestones_done} roadmap milestone(s) done` });\n    const focusDelta = pct(s.focus_min, s.prev_focus_min);\n    if (focusDelta >= 20) wins.push({ weight: focusDelta / 5, text: `${s.student_name}: focus time up ${focusDelta}% week on week` });\n    if (s.quiz_pct != null && s.prev_quiz_pct != null && s.quiz_pct - s.prev_quiz_pct >= 5) wins.push({ weight: s.quiz_pct - s.prev_quiz_pct, text: `${s.student_name}: quiz avg up to ${s.quiz_pct}%` });\n    if (s.open_alerts) risks.push({ weight: 10 * s.open_alerts, text: `${s.student_name}: ${s.alert_details}` });\n    if (focusDelta != null && focusDelta <= -20) risks.push({ weight: -focusDelta / 5, text: `${s.student_name}: focus time down ${-focusDelta}% week on week` });\n    if (s.app_days < 4) risks.push({ weight: 7 - s.app_days, text: `${s.student_name}: opened the app on ${s.app_days}/7 days` });\n  }\n  const table = adv.rows\n    .map(s => `| ${s.student_name} | ${s.attention_score} | ${s.focus_min} | ${s.quiz_pct ?? '-'} | ${s.timetable_pct ?? '-'} | ${s.app_days}/7 | ${s.sleep_h ?? '-'} |`)\n    .join('\\n');\n  const content = [\n    `## ${adv.name}: week of ${weekOf}`,\n    '',\n    '### Students by needs-attention',\n    '| Student | Attention | Focus min | Quiz % | Timetable % | App days | Sleep h |',\n    '|---|---|---|---|---|---|---|',\n    table,\n    '',\n    '### Top 3 wins',\n    top3(wins),\n    '',\n    '### Top 3 risks',\n    top3(risks),\n  ].join('\\n');\n  return { json: { advisor_name: adv.name, clickup_user_id: adv.clickup_user_id, title: `Monday review: ${adv.name} (week of ${weekOf})`, content } };\n});"
+      },
+      "id": "87a5d04c-72de-4d87-aad4-d7340c111c14",
+      "name": "Build digest per advisor",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "resource": "task",
+        "operation": "create",
+        "team": "={{ $env.CLICKUP_TEAM_ID }}",
+        "space": "={{ $env.CLICKUP_SPACE_ID }}",
+        "folderless": true,
+        "list": "={{ $env.CLICKUP_ADVISOR_LIST_ID }}",
+        "name": "={{ $json.title }}",
+        "additionalFields": {
+          "markdownContent": true,
+          "assignees": [
+            "={{ $json.clickup_user_id }}"
+          ],
+          "content": "={{ $json.content }}",
+          "dueDate": "={{ $now.setZone('Asia/Kolkata').plus({ days: 1 }).set({ hour: 10, minute: 0 }).toISO() }}"
+        }
+      },
+      "id": "b76a6d7d-6cb5-48e3-a51a-42d50511651b",
+      "name": "Post digest to ClickUp",
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        720,
+        320
+      ],
+      "credentials": {
+        "clickUpApi": {
+          "id": "REPLACE_clickup",
+          "name": "ClickUp API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into ingest_log (workflow, rows, status, execution_id)\nvalues ($1, $2, $3, $4)",
+        "options": {
+          "queryReplacement": "={{ [ $workflow.name, $('Build digest per advisor').all().length, 'ok', $execution.id ] }}"
+        }
+      },
+      "id": "5d6b1a49-0b9f-464d-b754-705fa474dde4",
+      "name": "Log run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        960,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      },
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "Sunday 18:00 IST": {
+      "main": [
+        [
+          {
+            "node": "Weekly rows per student",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Weekly rows per student": {
+      "main": [
+        [
+          {
+            "node": "Build digest per advisor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build digest per advisor": {
+      "main": [
+        [
+          {
+            "node": "Post digest to ClickUp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post digest to ClickUp": {
+      "main": [
+        [
+          {
+            "node": "Log run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "errorWorkflow": "REPLACE_WITH_00_error_alert_WORKFLOW_ID"
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "alcovia"
+    }
+  ]
+}

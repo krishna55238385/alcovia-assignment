@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GTM Tracker · Alcovia Ops</title>
+  <meta name="description" content="Alcovia GTM tracker: revenue vs target, funnel, Meta creatives, landing pages, invoices and renewals (dummy data).">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233730a3'/%3E%3Ctext x='16' y='22' font-family='Arial' font-weight='700' font-size='17' text-anchor='middle' fill='white'%3EA%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="topnav">
+    <div class="wrap">
+      <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">A</span>Alcovia Ops <small>internal</small></a>
+      <nav class="nav" aria-label="Dashboards">
+        <a href="index.html">Overview</a>
+        <a href="gtm.html" aria-current="page" data-keep-range>GTM tracker</a>
+        <a href="students.html" data-keep-range>Student tracker</a>
+      </nav>
+      <span class="pill-dummy">Dummy data</span>
+    </div>
+  </header>
+
+  <div class="pagebar">
+    <div class="wrap">
+      <div>
+        <h1>GTM tracker</h1>
+        <p class="sub">Revenue, funnel and paid acquisition for the selected period</p>
+      </div>
+      <div class="filters" id="timeline"></div>
+    </div>
+  </div>
+
+  <main class="wrap">
+    <section class="kpis k5" id="kpis" aria-label="Key metrics"></section>
+
+    <section class="grid g-2-1">
+      <div class="card">
+        <div class="card-h">
+          <div><h2>Revenue vs target</h2><p class="card-sub" id="rev-sub"></p></div>
+        </div>
+        <div class="chart-box tall"><canvas id="ch-rev" role="img" aria-label="Stacked revenue by period with cumulative revenue and target lines"></canvas></div>
+        <p class="src"><span><b>Data source:</b> Razorpay invoices + payment webhooks → n8n → Supabase <code>invoices</code>, <code>workshop_bookings</code>; targets from <code>monthly_targets</code></span></p>
+      </div>
+      <div class="card">
+        <div class="card-h"><h2>Revenue mix</h2></div>
+        <div class="chart-box short"><canvas id="ch-mix" role="img" aria-label="Revenue split doughnut"></canvas></div>
+        <h3 class="subh" style="margin-top:14px">New sign-ups: trial vs full program</h3>
+        <div id="signups"></div>
+        <p class="src"><span><b>Data source:</b> Razorpay (paid amounts) · ClickUp deal stage “Signed”</span></p>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h">
+        <div><h2>Lead funnel</h2><p class="card-sub" id="funnel-sub"></p></div>
+        <div class="segs" id="src-chips"></div>
+      </div>
+      <div class="funnel" id="funnel"></div>
+      <div class="strip" id="strip"></div>
+      <p class="src"><span><b>Data source:</b> ClickUp CRM stage timestamps (n8n sync on status change) · Meta Lead Ads webhook · Smallest.ai call outcomes</span></p>
+    </section>
+
+    <section class="card">
+      <div class="card-h">
+        <div><h2>Campaign performance by creative</h2><p class="card-sub">Click a column to sort. Flags are recomputed for the selected period.</p></div>
+        <div class="segs" id="obj-chips"></div>
+      </div>
+      <div class="table-wrap"><table class="tbl" id="tbl-camp"></table></div>
+      <p class="note"><span class="flag KILL">KILL</span> spend &gt; 2× median CPQL and 0 qualified · <span class="flag REFRESH">REFRESH</span> 7-day frequency ≥ 3 or CTR in bottom quartile · <span class="flag SCALE">SCALE</span> CPQL ≤ 0.8× campaign median and ≥1 signed · <span class="flag HOLD">HOLD</span> otherwise</p>
+      <p class="src"><span><b>Data source:</b> Meta Marketing API (ad-level insights, daily) → n8n → <code>ad_daily</code>; leads joined on <code>ad_id</code> from ClickUp</span></p>
+    </section>
+
+    <section class="grid g-3-2">
+      <div class="card">
+        <div class="card-h"><div><h2>Root-cause view: creatives</h2><p class="card-sub">x = CPQL (lower is better) · y = signed ÷ leads in period · bubble size = spend · colour = flag</p></div></div>
+        <div class="chart-box tall"><canvas id="ch-bubble" role="img" aria-label="Bubble chart of creatives by CPQL and conversion"></canvas></div>
+        <div class="legend-row" id="bubble-legend"></div>
+      </div>
+      <div class="card">
+        <div class="card-h"><div><h2>This period's calls</h2><p class="card-sub">Auto-generated from the numbers on this page</p></div></div>
+        <ol class="calls" id="calls"></ol>
+      </div>
+    </section>
+
+    <section class="card">
+      <div class="card-h"><div><h2>Landing page health</h2><p class="card-sub">Paid traffic only. Load time over 3s is shown in red.</p></div></div>
+      <div class="table-wrap"><table class="tbl" id="tbl-lp"></table></div>
+      <p class="src"><span><b>Data source:</b> GA4 / PostHog page events + Web Vitals beacon → n8n → <code>lp_daily</code></span></p>
+    </section>
+
+    <section class="grid g-1-1">
+      <div class="card">
+        <div class="card-h"><div><h2>Unpaid invoices</h2><p class="card-sub" id="inv-sub"></p></div></div>
+        <div class="ageing" id="ageing"></div>
+        <div class="table-wrap"><table class="tbl" id="tbl-inv"></table></div>
+        <p class="src"><span><b>Data source:</b> Razorpay invoice status webhook → <code>invoices</code>; reminders sent by n8n on day 3 / 10 / 20</span></p>
+      </div>
+      <div class="card">
+        <div class="card-h"><div><h2>Upcoming trial renewals</h2><p class="card-sub" id="ren-sub"></p></div></div>
+        <div class="table-wrap"><table class="tbl" id="tbl-ren"></table></div>
+        <p class="src"><span><b>Data source:</b> <code>enrollments</code> (trial end date) + engagement from app events, focus timer and attendance</span></p>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot"><div class="wrap"><span>Prototype by Krishna Prasad for Alcovia · dummy data · Oct 2026</span><span>"Today" is fixed at 23 Oct 2026</span></div></footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="assets/data.js"></script>
+  <script src="assets/common.js"></script>
+  <script src="assets/gtm.js"></script>
+</body>
+</html>

@@ -1,0 +1,448 @@
+{
+  "name": "02 Razorpay payments",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 02 Razorpay → Supabase\nEvents: `payment.captured` (workshop seat, ₹3,999 via payment link with `notes.workshop_id`), `invoice.paid` (program fee; `notes.renews_enrollment_id` marks the trial it renews), `invoice.expired` (→ overdue).\n\n1. HMAC-SHA256 of the **raw** body with `RAZORPAY_WEBHOOK_SECRET` must equal `X-Razorpay-Signature`, else 401.\n2. Writes are keyed on Razorpay IDs, so Razorpay's retries are harmless.\n3. Always answer 200 once stored; failures fall to the error workflow and Razorpay retries.\n\nn8n env: `NODE_FUNCTION_ALLOW_BUILTIN=crypto`.",
+        "height": 330,
+        "width": 520,
+        "color": 7
+      },
+      "id": "e4bbaf47-e0ae-4556-815b-71e4ea3b28ee",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        -80
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "razorpay",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "1dbceb58-651b-4647-a186-005df5b5f343",
+      "name": "Razorpay webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        320
+      ],
+      "webhookId": "c62b8276-2384-42e1-b63e-a5ebdda9fc5d"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst item = $input.first();\nconst headers = item.json.headers || {};\nconst raw = item.binary && item.binary.data\n  ? (await this.helpers.getBinaryDataBuffer(0, 'data')).toString('utf8')\n  : JSON.stringify(item.json.body);\nconst expected = crypto.createHmac('sha256', $env.RAZORPAY_WEBHOOK_SECRET).update(raw).digest('hex');\nconst given = String(headers['x-razorpay-signature'] || '');\nconst valid = given.length === expected.length &&\n  crypto.timingSafeEqual(Buffer.from(given), Buffer.from(expected));\n\nconst body = item.json.body && item.json.body.event ? item.json.body : JSON.parse(raw);\nconst payment = body.payload?.payment?.entity;\nconst invoice = body.payload?.invoice?.entity;\nconst iso = s => (s ? new Date(s * 1000).toISOString() : null);\n\nlet route = 'ignore';\nif (body.event === 'payment.captured' && payment && !payment.invoice_id && payment.notes?.workshop_id) route = 'workshop_booking';\nif (body.event === 'invoice.paid' && invoice) route = 'invoice_paid';\nif (body.event === 'invoice.expired' && invoice) route = 'invoice_expired';\n\nreturn [{\n  json: {\n    valid,\n    event: body.event,\n    route,\n    payment_id: payment?.id ?? null,\n    amount_inr: payment ? payment.amount / 100 : null,\n    paid_at: iso(invoice?.paid_at) || iso(payment?.created_at),\n    phone: payment?.contact || invoice?.customer_details?.contact || null,\n    payer_name: payment?.notes?.name || invoice?.customer_details?.name || null,\n    workshop_id: payment?.notes?.workshop_id ?? null,\n    razorpay_invoice_id: invoice?.id ?? null,\n    renews_enrollment_id: invoice?.notes?.renews_enrollment_id ?? null,\n  },\n}];"
+      },
+      "id": "7423d25e-5759-4e4c-9ac0-2f7207416351",
+      "name": "Verify signature + route",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        240,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "10979707-df8c-452c-ac93-abea4d274f86",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "id": "9c488758-1216-4ec4-ad63-e1183f06316b",
+      "name": "Signature valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{ \"error\": \"invalid signature\" }",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "ac98fa2d-a95d-4521-835a-d3d635656971",
+      "name": "Respond 401",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        720,
+        600
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "a017b5f0-088f-4764-8ed6-54249825d538",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "workshop_booking",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "workshop_booking"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "adc5766c-005b-41ec-8417-b431634f88e0",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "invoice_paid",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "invoice_paid"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict"
+                },
+                "conditions": [
+                  {
+                    "id": "032db9af-3f53-4c16-a1d1-bde0c7719017",
+                    "leftValue": "={{ $json.route }}",
+                    "rightValue": "invoice_expired",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "invoice_expired"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra",
+          "renameFallbackOutput": "ignored"
+        }
+      },
+      "id": "0c8288aa-d641-4c5f-be6d-e66bbe4a375a",
+      "name": "Route by event",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        720,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with known as (\n  select id from leads where parent_phone = $2 order by created_at desc limit 1\n), new_lead as (      -- first-time buyer: workshop is a lead source in its own right\n  insert into leads (source, parent_phone, parent_name)\n  select 'workshop', $2, $6 where $2 is not null and not exists (select 1 from known)\n  returning id\n)\ninsert into workshop_bookings (workshop_id, lead_id, razorpay_payment_id, amount, paid_at)\nvalues ($1::bigint, coalesce((select id from known), (select id from new_lead)), $3, $4::numeric, $5::timestamptz)\non conflict (razorpay_payment_id) do nothing\nreturning id",
+        "options": {
+          "queryReplacement": "={{ [ $json.workshop_id, $json.phone, $json.payment_id, $json.amount_inr, $json.paid_at, $json.payer_name ] }}"
+        }
+      },
+      "id": "b124f3fb-0be2-4b99-b3f0-f54074de99f1",
+      "name": "Insert workshop booking",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        960,
+        160
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "with inv as (\n  update invoices set status = 'paid', paid_at = coalesce(paid_at, $2::timestamptz)\n  where razorpay_invoice_id = $1\n  returning id\n), renewed as (       -- the trial this invoice renews\n  update enrollments set status = 'renewed'\n  where id = $3::bigint and status = 'active'\n  returning id\n)\nselect (select count(*) from inv)::int as invoices_updated, (select count(*) from renewed)::int as enrollments_renewed",
+        "options": {
+          "queryReplacement": "={{ [ $json.razorpay_invoice_id, $json.paid_at, $json.renews_enrollment_id ] }}"
+        }
+      },
+      "id": "36273ecc-8151-4dc2-8327-7bee2d683932",
+      "name": "Mark invoice paid",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        960,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "update invoices set status = 'overdue'\nwhere razorpay_invoice_id = $1 and paid_at is null\nreturning id",
+        "options": {
+          "queryReplacement": "={{ [ $json.razorpay_invoice_id ] }}"
+        }
+      },
+      "id": "a375d127-c707-436c-822c-4f35a23c78f1",
+      "name": "Mark invoice overdue",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        960,
+        480
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      },
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{ \"received\": true }",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "fd3e29d3-0f15-4c43-899e-ac186d40ac05",
+      "name": "Respond 200",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1200,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into ingest_log (workflow, rows, status, execution_id)\nvalues ($1, $2, $3, $4)",
+        "options": {
+          "queryReplacement": "={{ [ $workflow.name, $('Verify signature + route').first().json.valid ? 1 : 0, !$('Verify signature + route').first().json.valid ? 'error' : $('Verify signature + route').first().json.route === 'ignore' ? 'skipped' : 'ok', $execution.id ] }}"
+        }
+      },
+      "id": "b49554a0-effc-4ecf-a3b4-d643ce8922d9",
+      "name": "Log run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1440,
+        420
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      },
+      "executeOnce": true
+    }
+  ],
+  "connections": {
+    "Razorpay webhook": {
+      "main": [
+        [
+          {
+            "node": "Verify signature + route",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verify signature + route": {
+      "main": [
+        [
+          {
+            "node": "Signature valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature valid?": {
+      "main": [
+        [
+          {
+            "node": "Route by event",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 401",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by event": {
+      "main": [
+        [
+          {
+            "node": "Insert workshop booking",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark invoice paid",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark invoice overdue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert workshop booking": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark invoice paid": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark invoice overdue": {
+      "main": [
+        [
+          {
+            "node": "Respond 200",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 200": {
+      "main": [
+        [
+          {
+            "node": "Log run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond 401": {
+      "main": [
+        [
+          {
+            "node": "Log run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "errorWorkflow": "REPLACE_WITH_00_error_alert_WORKFLOW_ID"
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "alcovia"
+    }
+  ]
+}

@@ -1,0 +1,229 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alcovia Assignment Writeup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root { --ink:#16202c; --muted:#5b6673; --line:#dde3ea; --accent:#2f5bea; --soft:#f3f6fb; --bg:#ffffff; --green:#1d7a46; --amber:#a86a00; --red:#b42318; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --ink:#e7ecf2; --muted:#9aa6b2; --line:#2b3440; --accent:#7c9bff; --soft:#1a212b; --bg:#11161d; } }
+  :root[data-theme="dark"] { --ink:#e7ecf2; --muted:#9aa6b2; --line:#2b3440; --accent:#7c9bff; --soft:#1a212b; --bg:#11161d; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.6 Inter, system-ui, -apple-system, Segoe UI, sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 40px 16px 64px; }
+  h1 { font-size: 28px; line-height:1.25; margin: 0 0 6px; letter-spacing:-0.01em; }
+  .sub { color: var(--muted); margin: 0 0 22px; }
+  .links { display:flex; flex-wrap:wrap; gap:8px; margin: 0 0 28px; }
+  .links a { border:1px solid var(--line); border-radius:999px; padding:5px 12px; color:var(--accent); text-decoration:none; font-size:13.5px; font-weight:500; }
+  h2 { font-size: 20px; margin: 38px 0 10px; padding-top: 14px; border-top: 2px solid var(--ink); }
+  h3 { font-size: 16px; margin: 22px 0 6px; }
+  p { margin: 0 0 10px; }
+  ul, ol { margin: 0 0 12px; padding-left: 22px; }
+  li { margin: 0 0 5px; }
+  .tldr { background: var(--soft); border-left: 4px solid var(--accent); padding: 14px 18px; border-radius: 6px; margin: 0 0 8px; }
+  .tldr ol { margin-bottom: 0; }
+  .callout { background: var(--soft); padding: 12px 16px; border-radius: 6px; margin: 12px 0; }
+  .tbl { overflow-x: auto; margin: 10px 0 16px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  th, td { text-align: left; vertical-align: top; padding: 7px 9px; border-bottom: 1px solid var(--line); }
+  th { font-weight: 600; background: var(--soft); }
+  .muted { color: var(--muted); }
+  .tag { display:inline-block; font-size:11.5px; font-weight:600; padding:1px 7px; border-radius:4px; background:var(--soft); border:1px solid var(--line); }
+  code { font-size: 13px; background: var(--soft); padding: 1px 5px; border-radius: 4px; }
+  footer { margin-top: 40px; color: var(--muted); font-size: 13px; border-top:1px solid var(--line); padding-top: 12px; }
+  @media print {
+    body { font-size: 11.5px; }
+    main { padding: 0 6px; max-width: none; }
+    h1 { font-size: 22px; }
+    h2 { font-size: 16px; margin-top: 22px; break-after: avoid; }
+    h3 { font-size: 13px; break-after: avoid; }
+    table { font-size: 10.5px; }
+    tr, .callout, .tldr { break-inside: avoid; }
+    .links a { color: var(--ink); }
+  }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Alcovia: Product, Systems &amp; Analytics Lead assignment</h1>
+<p class="sub">Krishna Prasad · krishnasuseel2001@gmail.com · Submitted 23 Oct 2026</p>
+<div class="links">
+  <a href="https://alcovia-ops.vercel.app/gtm.html">GTM tracker (live)</a>
+  <a href="https://alcovia-ops.vercel.app/students.html">Student tracker (live)</a>
+  <a href="https://github.com/krishna55238385/alcovia-assignment">GitHub repo</a>
+</div>
+
+<div class="tldr">
+<strong>The short version</strong>
+<ol>
+  <li><strong>Problems 1 and 4 have the same fix.</strong> The daily rigour (timetable, 8pm quiz, focus time, chapter progress) lives in docs, folders and ClickUp today. If it moves into the app, students get a reason to open it every day, and the student dashboard fills itself. So I'd run the app-adoption work and the student-dashboard work as one project, not two.</li>
+  <li><strong>Make "30 minutes" mean 30 minutes of focus, not screen time.</strong> No parent wants their teen on a phone for longer. One 25-minute locked Focus session a day, plus the quiz and a day plan, gets a student to about 30 minutes, and every one of those minutes is time parents are glad about.</li>
+  <li><strong>Ship the GTM tracker first (live by 20 Nov).</strong> The data already exists in Meta, ClickUp and Razorpay, and it makes revenue accountable from week 3. The one thing to fix first is a lead ID that travels from the ad to the payment. Without it, nobody can say which campaign produced revenue, only which produced leads.</li>
+  <li><strong>Every feature or system goes through one loop:</strong> a one-page Bet Card with a metric, target and kill rule; tracking built before the feature; a 1-week pilot with one pod; and a readout on day 14 that decides scale, iterate or kill. Each step has an owner and a document. This is how I'd keep the success rate high with a team of three.</li>
+</ol>
+</div>
+
+<h2>0. How I'd use the team and the first 8 weeks</h2>
+
+<h3>Who does what</h3>
+<div class="tbl"><table>
+<tr><th>Person</th><th>Owns</th><th>Does not own</th></tr>
+<tr><td><strong>Full stack engineer</strong></td><td>App changes (Focus Mode, in-app quiz, day plan, chapter stages), event tracking, wearable sync, Supabase, dashboard pages</td><td>Deciding what to build. Every ticket comes with a Bet Card and the events it needs to fire</td></tr>
+<tr><td><strong>Process / systems designer (commerce)</strong></td><td>ClickUp clean-up (one Leads list, statuses = funnel stages, required fields), Razorpay links, invoices and renewals, n8n workflows, advisor input forms, SOPs and data hygiene</td><td>App code</td></tr>
+<tr><td><strong>Me</strong></td><td>Problem framing, metric definitions, Bet Cards, talking to teens, parents and advisors, dashboard design, analysis, weekly reviews, QA on every release, and saying no</td><td>Being the only person who knows how a system works. Everything I set up gets a runbook</td></tr>
+</table></div>
+
+<h3>Timebox: join 1 Nov (Sun), week 1 starts Mon 2 Nov</h3>
+<div class="tbl"><table>
+<tr><th>Week</th><th>Me</th><th>Engineer</th><th>Systems designer</th><th>Visible output</th></tr>
+<tr><td><strong>W1</strong><br>2–8 Nov</td><td>Talk to 10 students, 5 parents and every advisor. Sit in 3 discovery calls and 1 weekly review. Write the metric dictionary.</td><td>Audit app event tracking. Set up Supabase. Start sending app events.</td><td>Audit ClickUp: map each status to a funnel stage, list the missing fields.</td><td>Metric dictionary signed off. Adoption baseline confirmed</td></tr>
+<tr><td><strong>W2–W3</strong><br>9–22 Nov</td><td>GTM tracker v1 design and QA. Bet Cards for the daily loop.</td><td>Day plan and in-app 8pm quiz (pilot pod)</td><td>ClickUp → Supabase sync. Razorpay webhook. Meta Ads daily pull. Lead ID in Razorpay notes.</td><td><strong>GTM tracker live 20 Nov.</strong> First Monday GTM review on 23 Nov</td></tr>
+<tr><td><strong>W4–W5</strong><br>23 Nov–6 Dec</td><td>Pilot readouts. Student dashboard KPI sign-off with advisors.</td><td>Focus Mode v2 (phone lock + whitelisted calls). Realm rewards tied to focus. Apple Health / Health Connect sync.</td><td>Advisor weekly input form. Session check-in + 2-tap rating. Alert rules.</td><td>Daily loop live for all students. Day-14 readout</td></tr>
+<tr><td><strong>W6–W7</strong><br>7–20 Dec</td><td>Student dashboard v1 QA. Parent weekly summary.</td><td>Chapter stages in app. Advisor dashboard page.</td><td>Nightly roll-up and alerts. Weekly advisor digest.</td><td><strong>Student dashboard live 18 Dec.</strong> Weekly review runs off it</td></tr>
+<tr><td><strong>W8</strong><br>21–27 Dec</td><td>Month-2 review: what worked, what to kill, Q1 bets</td><td>Fixes and hardening</td><td>Runbooks and error alerts on every workflow</td><td>Q1 plan, decisions log</td></tr>
+</table></div>
+<p class="muted">Order of work: GTM first because the data exists and it pays for itself. The daily loop starts in week 2 because the adoption numbers and the student dashboard both depend on it. Problem 3's process runs from day one.</p>
+
+<h2>1. App adoption: 2.15 → 30 minutes a day</h2>
+
+<h3>What the numbers say</h3>
+<ul>
+  <li><strong>The game works and study doesn't.</strong> Home and the Realm are used. The Focus Timer has 11 who tried it but only 5 regulars. Syllabus dropped from 10 students to 1, and nobody opened the Study Planner this week. Students come for the fun parts and leave before the parts that matter to us.</li>
+  <li><strong>25 features for 20 students is too much to think about.</strong> A 14-year-old opening the app has to choose between Home, the Realm, Dragons, Coins, Streak, Rankings, Side Quests, Syllabus, Planner, Goals, Wellness... Most of these got one try.</li>
+  <li><strong>Wellness depends on hardware most students don't have.</strong> One student connected WHOOP. Most teens have an Apple Watch, a Samsung watch or nothing.</li>
+  <li><strong>An average of 20 users is fragile.</strong> Two heavy Realm players can move it a lot. I'd track the median and the share of students who did the core action, not only the mean.</li>
+</ul>
+
+<h3>What I'd change the goal to</h3>
+<p>"30 minutes in the app" should mean "30 minutes of the app doing its job". The metric I'd make the north star is <strong>focus minutes per active Alcovian per day</strong>. It measures app usage and study effort at the same time, and it is screen time a parent is happy to see. Two supporting metrics: <strong>% of students who finish the daily loop</strong> (plan, focus, quiz), and <strong>7-day return rate</strong>.</p>
+
+<h3>The plan: one daily loop instead of 25 features</h3>
+<div class="tbl"><table>
+<tr><th>Step</th><th>Time</th><th>What changes</th></tr>
+<tr><td>1. Plan my day</td><td>~2 min</td><td>After school, the app shows today's timetable blocks (tuition, sports, free time) and suggests 1–2 self-study blocks on chapters that are behind pace. One tap to accept.</td></tr>
+<tr><td>2. Focus</td><td>25–50 min</td><td>Starts from the planned block. The phone locks except for whitelisted calls (parents). Focus minutes are the <em>only</em> way to win Realm territory and hatch dragons. Daily login coins drop. The game the students already like now pays for the study habit.</td></tr>
+<tr><td>3. 8pm quiz</td><td>~5 min</td><td>Moves into the app with a push at 7:55pm, a pod leaderboard and streaks. It's an existing daily habit; we just move it to where the other data is.</td></tr>
+<tr><td>4. Check-in</td><td>~1 min</td><td>Mark chapter stage, rate today, see "my week". This feeds the student dashboard without anyone typing in ClickUp.</td></tr>
+</table></div>
+<ul>
+  <li><strong>Hide, don't delete.</strong> Rankings, Side Quests, Goals and wellness extras move behind Discover until the loop works. Home becomes "your next step", not a feed of 9 cards.</li>
+  <li><strong>Make it social.</strong> Pod focus rooms (5 Alcovians focusing at the same time) and a weekly pod focus goal. Pods already exist offline; this uses them.</li>
+  <li><strong>Pull from advisors and parents.</strong> The weekly advisor review runs off the app's data, so advisors ask students to log. Parents get a Sunday summary ("Aanya focused 3h 40m this week"), so parents ask for it too.</li>
+  <li><strong>Wellness with no effort.</strong> Read from Apple Health and Health Connect (Samsung, Garmin and others sync into these), plus WHOOP for students who have one. No new device needed.</li>
+</ul>
+
+<h3>Targets and how I'd test with 20 students</h3>
+<p>Ramp: <strong>10 min by end of Dec → 20 by end of Feb → 30 by end of Mar.</strong> With 20 users, A/B tests won't reach significance. Instead I'd roll out pod by pod: one pod gets a change for a week, then compare against the other pods and against that pod's own previous week. I'd also watch 3 students use the app on a screen share for every release. With this few users, 3 live sessions teach more than a dashboard.</p>
+<p class="muted">Guardrail: if focus minutes rise but quiz scores, chapter readiness or sleep drop, we're pushing too hard. Those are on the student dashboard for exactly this reason.</p>
+
+<h2>2. GTM tracker</h2>
+<p><strong>Live prototype:</strong> <a href="https://alcovia-ops.vercel.app/gtm.html">https://alcovia-ops.vercel.app/gtm.html</a> (dummy data, every number recalculates for the timeline you pick).</p>
+<div class="tbl"><table>
+<tr><th>Ask in the brief</th><th>Where it is on the tracker</th><th>Source</th></tr>
+<tr><td>Revenue target vs achievement, trial vs full, students onboarded, workshop revenue (₹3,999/seat), program vs workshop, unpaid invoices, trial renewals due</td><td>KPI row, weekly revenue chart with cumulative target line, split doughnut, unpaid invoices with ageing, renewals table with an engagement signal</td><td>Razorpay webhook, enrollments, monthly targets</td></tr>
+<tr><td>Funnel: leads → qualified → discovery set (show-up) → ambition interview (drop-off) → architect session → signed</td><td>Funnel with step conversion, show-up rate and drop-off, filter by source</td><td>ClickUp status changes, timestamped per stage</td></tr>
+<tr><td>CPQL, program conversion %, organic leads, average lead journey</td><td>Top-metrics strip, journey days split by signed vs dropped</td><td>Meta spend + leads</td></tr>
+<tr><td>Campaign performance, CTR best/worst, frequency 3+, landing page health</td><td>Creative table with SCALE / HOLD / REFRESH / KILL badges; landing page table (drop-off, load time over 3s flagged)</td><td>Meta Ads API daily pull, site analytics</td></tr>
+<tr><td>RCA: what to drop, refresh, scale</td><td>Bubble chart (cost per qualified lead vs conversion, size = spend) plus an auto-written "calls for this period" list</td><td>All of the above, joined by lead ID</td></tr>
+</table></div>
+
+<h3>Three things that make it trustworthy</h3>
+<ol>
+  <li><strong>One lead ID from ad to payment.</strong> Meta lead form → ClickUp task → Razorpay payment link notes all carry the same lead ID. This is the only way to judge a creative by the revenue it brought in, not the leads.</li>
+  <li><strong>ClickUp statuses are the funnel.</strong> One Leads list, one status per stage, and an n8n timestamp whenever a status changes. Nobody fills in the tracker by hand. Smallest.ai reminder calls are triggered when the status moves to "Discovery set", so the show-up rate is something we act on, not just report.</li>
+  <li><strong>Rules, not opinions, for RCA.</strong> Refresh if 7-day frequency is 3 or more or CTR is in the bottom quarter. Scale if CPQL is 20% or more below the campaign median and the creative has converted. Kill if spend passes 2× median CPQL with no qualified lead. We review the rules monthly; the tracker applies them daily.</li>
+</ol>
+<p><strong>Cadence:</strong> a 30-minute Monday GTM review using only the tracker. Each red number gets one owner and one action, logged in ClickUp.</p>
+
+<h2>3. A structure that makes features and systems succeed</h2>
+<p>Most features fail for one of three reasons: nobody agreed what success means, nobody can measure it after launch, or it adds steps for a teen who has no reason to take them. The process below targets those three. It's the same for an app feature, a new dashboard or an n8n automation.</p>
+
+<div class="tbl"><table>
+<tr><th>Step</th><th>Owner</th><th>Document</th><th>The step is done when</th></tr>
+<tr><td><strong>1. Frame</strong></td><td>Me</td><td><em>Bet Card</em> (1 page): problem, who it's for (teen / parent / advisor), evidence, one success metric with baseline → target → date, one guardrail metric, kill rule, cognitive-load budget</td><td>The founder agrees with the metric and the kill rule. If we can't name the metric, we don't build it</td></tr>
+<tr><td><strong>2. Shape</strong></td><td>Me + systems designer</td><td>Flow sketch, the events it must fire, manual steps it removes or adds, who does what</td><td>30-minute review. The engineer can estimate it. Event names are added to the metric dictionary</td></tr>
+<tr><td><strong>3. Build</strong></td><td>Engineer</td><td>ClickUp tickets</td><td>Done = works on the test account, events show up in Supabase, the dashboard tile exists, it's behind a flag</td></tr>
+<tr><td><strong>4. Pilot</strong></td><td>Me</td><td>Pilot notes</td><td>One pod for one week. I watch 3 students use it live. Bugs fixed</td></tr>
+<tr><td><strong>5. Launch</strong></td><td>Systems designer</td><td>3-line SOP for advisors, parent note if needed</td><td>Everyone affected knows what changed and what they need to do</td></tr>
+<tr><td><strong>6. Readout</strong></td><td>Me</td><td>Day-14 and day-30 readout in the decisions log</td><td>Decision made: <strong>scale</strong>, <strong>iterate once</strong>, or <strong>kill</strong>. A missed target with no decision is not allowed</td></tr>
+</table></div>
+
+<h3>The cognitive-load budget (written on every Bet Card)</h3>
+<ul>
+  <li>A teen can do the core action in <strong>3 taps and under 10 seconds</strong>, with no explanation.</li>
+  <li>At most <strong>1 new screen</strong>. If something is added, something else gets hidden.</li>
+  <li>A parent understands any summary we send in <strong>5 seconds</strong>.</li>
+  <li>An advisor's manual input stays <strong>under 10 minutes per student per week</strong>.</li>
+</ul>
+
+<h3>Rhythm for a team of three</h3>
+<ul>
+  <li><strong>Monday (30 min):</strong> GTM review, then plan the week in ClickUp. At most 2 bets in build at once.</li>
+  <li><strong>Daily:</strong> a written check-in in ClickUp (yesterday, today, blocked). No standing meeting.</li>
+  <li><strong>Thursday:</strong> 20-minute demo of anything shipped or piloted.</li>
+  <li><strong>Every other Friday:</strong> readouts and the decisions log.</li>
+</ul>
+
+<h3>Systems that don't break</h3>
+<ul>
+  <li>Every n8n workflow has an owner, writes a row to <code>ingest_log</code> on each run, retries on failure, and alerts ClickUp on error. Upserts are keyed on source IDs, so a re-run never duplicates data.</li>
+  <li>A weekly data-quality check flags leads missing a stage date, payments with no lead ID, and students with no app event in 7 days.</li>
+  <li>Every system has a one-page runbook, so any of the three of us can fix it.</li>
+</ul>
+
+<h2>4. Student dashboard</h2>
+<p><strong>Live prototype:</strong> <a href="https://alcovia-ops.vercel.app/students.html">https://alcovia-ops.vercel.app/students.html</a> (dummy data, filter by timeline, pod and advisor; click a student to drill down).</p>
+
+<h3>KPIs through the three lenses</h3>
+<div class="tbl"><table>
+<tr><th>Level / activity</th><th>Quantity: did Alcovia conduct it?</th><th>Quality: did Alcovians like it?</th><th>Performance: how did the Alcovian do?</th></tr>
+<tr><td><strong>Daily:</strong> timetable, quiz, focus, active minutes, recovery</td><td>Quiz held on % of days; % of students with a day plan</td><td>Quiz participation %; streak retention</td><td>Timetable adherence %, quiz score %, focus minutes/day, active minutes, sleep hours, recovery %</td></tr>
+<tr><td><strong>Weekly:</strong> academic sessions, academic roadmap</td><td>Sessions held vs scheduled; roadmap reviewed on time</td><td>Attendance %, session rating</td><td>Task completion, deadline adherence, time-estimate accuracy, chapter readiness score, syllabus pace vs 25% per quarter, exam score vs target</td></tr>
+<tr><td><strong>Monthly:</strong> workshops, pod, peer, mentor call, personal branding</td><td>Held vs planned, per type</td><td>Attendance, rating, % would recommend</td><td>Soft-skill scores from workshops (teamwork, adaptability, public speaking...); branding clips posted</td></tr>
+<tr><td><strong>Quarterly:</strong> podcast, competition prep, parent-child, out of city, theme</td><td>Held vs planned</td><td>Student and parent rating</td><td>Competition result, theme project milestone done</td></tr>
+<tr><td><strong>Roadmaps:</strong> career, personal, academic</td><td>Roadmap exists and was reviewed this month</td><td>Student agrees with it (1 question)</td><td>Career: done / not done. Personal: monthly milestones hit %. Academic: readiness + syllabus pace</td></tr>
+</table></div>
+
+<h3>The advisor's job, given they aren't subject experts</h3>
+<p>The advisor doesn't need to teach chemistry. Their job is process: set targets from subject affinity and past scores, protect self-study time in the timetable, and check that each chapter goes through every stage of rigour (read → notes → practice ≥70% → timed past paper → ready ≥80%). When a subject falls a set percentage behind target, an alert brings in a tutor. The dashboard holds advisors to these process metrics, which they control, not to marks, which they don't.</p>
+
+<h3>How data gets in without manual work</h3>
+<div class="tbl"><table>
+<tr><th>Data</th><th>How it's captured</th><th>Human effort</th></tr>
+<tr><td>Focus minutes, app usage, day plan, quiz, chapter stage, tasks</td><td>App events → Supabase</td><td>None (the student does it as part of using the app)</td></tr>
+<tr><td>Active minutes, sleep, recovery</td><td>Apple Health / Health Connect / WHOOP sync</td><td>One-time permission</td></tr>
+<tr><td>Attendance and rating for any session</td><td>QR / one-tap check-in, then a 2-tap rating push after the session</td><td>2 taps</td></tr>
+<tr><td>Practice accuracy, exam results</td><td>Student enters it in the app; advisor verifies in the weekly form</td><td>About 5 minutes a week</td></tr>
+<tr><td>Advisor notes, roadmap status, soft-skill scores</td><td>One structured ClickUp form per student per week → n8n → Supabase</td><td>Under 10 minutes per student per week</td></tr>
+<tr><td>Payments, renewals</td><td>Razorpay webhook</td><td>None</td></tr>
+</table></div>
+
+<h3>Where it shows up</h3>
+<ul>
+  <li><strong>Advisors and founders:</strong> a web dashboard (the prototype) with a cohort table sorted by "needs attention" and a per-student drill-down. It replaces the weekly doc.</li>
+  <li><strong>Students:</strong> a "My week" card on Home.</li>
+  <li><strong>Parents:</strong> a Sunday WhatsApp summary and a monthly report. Instant alerts only for a missed deadline or a subject falling behind pace.</li>
+</ul>
+<p><strong>Timeline:</strong> KPI sign-off by 4 Dec, data flowing by 11 Dec, dashboard v1 live on 18 Dec, weekly reviews run on it from the first week of January.</p>
+
+<h2>What's in the repo</h2>
+<ul>
+  <li><code>dashboard/</code>: both dashboards (static HTML/JS, dummy data generated in the browser so filters really work)</li>
+  <li><code>sql/</code>: Postgres/Supabase schema, views, and one metric query per dashboard tile</li>
+  <li><code>n8n/</code>: importable workflows: ClickUp lead-stage sync (+ Smallest.ai reminders), Razorpay webhook, Meta Ads daily pull with creative alerts, nightly student roll-up and alerts, weekly advisor digest, and an error-alert workflow the others report failures to. The creative flags and student alert rules each live in one SQL function, so the dashboard and the alerts can never disagree</li>
+</ul>
+
+<h3>Assumptions</h3>
+<ul>
+  <li>Usage numbers come from the brief; I haven't seen raw event data. Week 1 starts by confirming the baseline.</li>
+  <li>The 8pm quiz and the timetable currently run outside the app.</li>
+  <li>Supabase (Postgres) is used as the store because it's cheap, works well with n8n and the app, and lets a non-engineer read the SQL. Any Postgres would do.</li>
+</ul>
+
+<footer>Krishna Prasad · Product, Systems &amp; Analytics Lead assignment for Alcovia · 23 Oct 2026</footer>
+</main>
+</body>
+</html>

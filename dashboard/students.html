@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Student Tracker · Alcovia Ops</title>
+  <meta name="description" content="Alcovia student tracker: quantity, quality and performance lenses, app adoption and per-student drill-down (dummy data).">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%233730a3'/%3E%3Ctext x='16' y='22' font-family='Arial' font-weight='700' font-size='17' text-anchor='middle' fill='white'%3EA%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="topnav">
+    <div class="wrap">
+      <a class="brand" href="index.html"><span class="brand-mark" aria-hidden="true">A</span>Alcovia Ops <small>internal</small></a>
+      <nav class="nav" aria-label="Dashboards">
+        <a href="index.html">Overview</a>
+        <a href="gtm.html" data-keep-range>GTM tracker</a>
+        <a href="students.html" aria-current="page" data-keep-range>Student tracker</a>
+      </nav>
+      <span class="pill-dummy">Dummy data</span>
+    </div>
+  </header>
+
+  <div class="pagebar">
+    <div class="wrap">
+      <div>
+        <h1>Student tracker</h1>
+        <p class="sub" id="page-sub">Alcovians on the app</p>
+      </div>
+      <div class="filters" id="timeline"></div>
+    </div>
+  </div>
+
+  <main class="wrap">
+    <section class="card" aria-labelledby="attn-h">
+      <div class="card-h">
+        <div><h2 id="attn-h">Needs attention now</h2><p class="card-sub" id="attn-sub"></p></div>
+        <a href="#cohort" class="chip acc">Jump to cohort table ↓</a>
+      </div>
+      <div class="attn" id="attn"></div>
+    </section>
+
+    <!-- QUANTITY -->
+    <section class="lens" aria-labelledby="lq-h">
+      <div class="lens-h">
+        <div><div class="eyebrow">Lens 1 · Quantity</div><h2 id="lq-h">Did Alcovia conduct it?</h2><p>Sessions scheduled vs conducted, by activity type. Delivery: green ≥ 95%, amber ≥ 85%, red below.</p></div>
+      </div>
+      <div class="lens-b">
+        <div class="kpis" id="q-kpis"></div>
+        <div class="grid g-1-1">
+          <div class="card">
+            <h3 class="subh">Scheduled vs conducted by activity type</h3>
+            <div class="chart-box tall"><canvas id="ch-q-type" role="img" aria-label="Scheduled versus conducted sessions by activity type"></canvas></div>
+          </div>
+          <div class="card">
+            <h3 class="subh">Delivery by activity type</h3>
+            <div class="table-wrap"><table class="tbl" id="tbl-q"></table></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-h"><h3 class="subh" style="margin:0">Delivery over time</h3><div class="segs" id="gran-chips"></div></div>
+          <div class="chart-box"><canvas id="ch-q-trend" role="img" aria-label="Conducted and missed sessions over time with delivery rate"></canvas></div>
+        </div>
+        <p class="src"><span><b>Data source:</b> ClickUp calendar (scheduled) + one-tap “session done” advisor form (conducted) → n8n → <code>activities</code> · daily quiz published in the app (<code>quizzes</code>)</span></p>
+      </div>
+    </section>
+
+    <!-- QUALITY -->
+    <section class="lens" aria-labelledby="ll-h">
+      <div class="lens-h">
+        <div><div class="eyebrow">Lens 2 · Quality</div><h2 id="ll-h">Did Alcovians like it?</h2><p>Attendance, 1-tap rating after each session, would-recommend, and facilitator-scored soft skills from workshops.</p></div>
+      </div>
+      <div class="lens-b">
+        <div class="kpis" id="l-kpis"></div>
+        <div class="grid g-3-2">
+          <div class="card">
+            <h3 class="subh">Quality by activity type</h3>
+            <div class="table-wrap"><table class="tbl" id="tbl-l"></table></div>
+          </div>
+          <div class="card">
+            <h3 class="subh">Soft skills from workshops (1–5)</h3>
+            <div class="chart-box"><canvas id="ch-radar" role="img" aria-label="Soft-skill radar, this period versus previous"></canvas></div>
+          </div>
+        </div>
+        <p class="src"><span><b>Data source:</b> App check-in / QR attendance + in-app 1-tap rating and “would you recommend” prompt · facilitator rubric via ClickUp form → <code>activity_attendance</code></span></p>
+      </div>
+    </section>
+
+    <!-- PERFORMANCE -->
+    <section class="lens" aria-labelledby="lp-h">
+      <div class="lens-h">
+        <div><div class="eyebrow">Lens 3 · Performance</div><h2 id="lp-h">How did the Alcovian do?</h2><p>Averages across students in the filter. Each tile shows its change against the previous period.</p></div>
+      </div>
+      <div class="lens-b">
+        <div class="kpis k6" id="p-kpis"></div>
+        <div class="grid g-3">
+          <div class="card">
+            <h3 class="subh">Syllabus completion vs pace</h3>
+            <div class="chart-box short"><canvas id="ch-syl" role="img" aria-label="Share of chapters at Ready versus the 25 percent per quarter pace line"></canvas></div>
+            <p class="note">Ready = stage 5 (timed past papers ≥ 80%). Pace = 25% of chapters per quarter.</p>
+          </div>
+          <div class="card">
+            <h3 class="subh">Exam score vs target by subject</h3>
+            <div class="chart-box short" id="box-exam"><canvas id="ch-exam" role="img" aria-label="Average exam score versus target by subject"></canvas></div>
+            <p class="note" id="exam-note"></p>
+          </div>
+          <div class="card">
+            <h3 class="subh">Roadmap milestones by track</h3>
+            <div class="chart-box short"><canvas id="ch-ms" role="img" aria-label="Roadmap milestones done versus open by track"></canvas></div>
+            <p class="note" id="ms-note"></p>
+          </div>
+        </div>
+        <p class="src"><span><b>Data sources:</b> Focus timer + in-app quiz + timetable check-offs (app events) · tasks &amp; chapter stages (app, advisor-verified in ClickUp) · exam marks (parent upload / advisor form) · wearables via Apple Health, Health Connect, WHOOP, Garmin</span></p>
+      </div>
+    </section>
+
+    <!-- APP ADOPTION -->
+    <section class="lens" aria-labelledby="la-h">
+      <div class="lens-h">
+        <div><div class="eyebrow">App adoption</div><h2 id="la-h">Are Alcovians using the app?</h2><p id="app-sub">Average minutes per student per day against the 30-minute target.</p></div>
+      </div>
+      <div class="lens-b">
+        <div class="kpis" id="a-kpis"></div>
+        <div class="grid g-3">
+          <div class="card">
+            <h3 class="subh">App minutes / student / day vs 30-min target</h3>
+            <div class="chart-box short"><canvas id="ch-app" role="img" aria-label="Average app minutes per student per day versus target"></canvas></div>
+          </div>
+          <div class="card">
+            <h3 class="subh">Daily and weekly active students</h3>
+            <div class="chart-box short"><canvas id="ch-dau" role="img" aria-label="Daily and weekly active students"></canvas></div>
+          </div>
+          <div class="card">
+            <h3 class="subh">Minutes by feature</h3>
+            <div class="chart-box short"><canvas id="ch-feat" role="img" aria-label="Share of app minutes by feature"></canvas></div>
+          </div>
+        </div>
+        <p class="src"><span><b>Data source:</b> App analytics events (screen_view, session_start/end) → Supabase <code>app_sessions</code>; no manual input</span></p>
+      </div>
+    </section>
+
+    <!-- COHORT -->
+    <section class="card" id="cohort" aria-labelledby="co-h">
+      <div class="card-h">
+        <div><h2 id="co-h">Cohort</h2><p class="card-sub">One row per Alcovian, sorted by “needs attention” first. Click a row to see trends, chapter readiness, exams and milestones.</p></div>
+      </div>
+      <div class="table-wrap"><table class="tbl" id="tbl-cohort"></table></div>
+      <p class="note">RAG thresholds: app ≥ 5 / 2.5 min · focus ≥ 30 / 10 min · quiz ≥ 70 / 55% · timetable ≥ 80 / 65% · tasks ≥ 85 / 70% · syllabus vs pace ≥ 0 / −10 pp · attendance ≥ 85 / 70% · sleep ≥ 7.3 / 6.5 h. Values are for the selected period; readiness and last-open are as of the period end.</p>
+      <p class="src"><span><b>Data source:</b> All of the above, joined on <code>student_id</code> in Supabase views</span></p>
+    </section>
+  </main>
+
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="dr-name" hidden>
+    <div class="drawer-h">
+      <div><h2 id="dr-name"></h2><p id="dr-meta"></p></div>
+      <button type="button" class="x-btn" id="dr-close" aria-label="Close student details">×</button>
+    </div>
+    <div class="drawer-b" id="dr-body"></div>
+  </aside>
+
+  <footer class="foot"><div class="wrap"><span>Prototype by Krishna Prasad for Alcovia · dummy data · Oct 2026</span><span>"Today" is fixed at 23 Oct 2026</span></div></footer>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+  <script src="assets/data.js"></script>
+  <script src="assets/common.js"></script>
+  <script src="assets/students.js"></script>
+</body>
+</html>

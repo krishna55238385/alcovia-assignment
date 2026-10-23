@@ -1,0 +1,129 @@
+{
+  "name": "00 Error alert",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 00 Error alert\nSet as **Error workflow** in every other workflow's settings.\nAny failed run → `ingest_log` row with status `error` → ClickUp task for the ops owner, so a broken feed is noticed the same day instead of at month-end.",
+        "height": 200,
+        "width": 460,
+        "color": 7
+      },
+      "id": "6be9ea4a-f37f-42d3-a598-5fd98234d362",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -40,
+        60
+      ]
+    },
+    {
+      "parameters": {},
+      "id": "5dab9d6a-48df-4e29-a0ef-329330b2e102",
+      "name": "On workflow error",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        320
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "insert into ingest_log (workflow, rows, status, error, execution_id)\nvalues ($1, 0, 'error', $2, $3)",
+        "options": {
+          "queryReplacement": "={{ [ $json.workflow.name, ($json.execution.lastNodeExecuted || '') + ': ' + ($json.execution.error?.message || 'unknown error'), $json.execution.id ] }}"
+        }
+      },
+      "id": "8906dd39-a9d2-4f74-bb26-8483bf7d2698",
+      "name": "Log failure",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        320
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_supabase_pg",
+          "name": "Supabase Postgres (n8n)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "accessToken",
+        "resource": "task",
+        "operation": "create",
+        "team": "={{ $env.CLICKUP_TEAM_ID }}",
+        "space": "={{ $env.CLICKUP_SPACE_ID }}",
+        "folderless": true,
+        "list": "={{ $env.CLICKUP_OPS_LIST_ID }}",
+        "name": "=n8n failed: {{ $('On workflow error').item.json.workflow.name }}",
+        "additionalFields": {
+          "markdownContent": true,
+          "assignees": [
+            "={{ $env.CLICKUP_OPS_OWNER_ID }}"
+          ],
+          "priority": 2,
+          "content": "=**Node:** {{ $('On workflow error').item.json.execution.lastNodeExecuted }}\n**Error:** {{ $('On workflow error').item.json.execution.error.message }}\n**Execution:** {{ $('On workflow error').item.json.execution.url }}"
+        }
+      },
+      "id": "2d6488e8-c1a2-44ca-a93d-50bc7ee018f1",
+      "name": "Ops task for owner",
+      "type": "n8n-nodes-base.clickUp",
+      "typeVersion": 1,
+      "position": [
+        480,
+        320
+      ],
+      "credentials": {
+        "clickUpApi": {
+          "id": "REPLACE_clickup",
+          "name": "ClickUp API"
+        }
+      },
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000
+    }
+  ],
+  "connections": {
+    "On workflow error": {
+      "main": [
+        [
+          {
+            "node": "Log failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log failure": {
+      "main": [
+        [
+          {
+            "node": "Ops task for owner",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Asia/Kolkata",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all"
+  },
+  "pinData": {},
+  "tags": [
+    {
+      "name": "alcovia"
+    }
+  ]
+}
